@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Публичный цифровой нотариат</title>
+    <title>Цифровой нотариат</title>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
@@ -20,7 +20,7 @@
     <button onclick="processDocument()">📄 Подписать</button>
     <p id="status"></p>
 
-    <h3>Зарегистрированные транзакции</h3>
+    <h3>История транзакций</h3>
     <table id="transactionsTable">
         <tr>
             <th>Хеш</th>
@@ -30,87 +30,23 @@
     </table>
 
     <script>
-        const REPO_USER = "shokhjakhonone";  // Твой GitHub логин
-        const REPO_NAME = "chain-notary";   // Название репозитория
-        const FILE_PATH = "database/transactions.json"; // Где хранятся транзакции
-        const GITHUB_TOKEN = "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";  // Вставь свой GitHub API Token
+        function loadTransactions() {
+            const transactions = JSON.parse(localStorage.getItem("transactions") || "[]");
 
-        async function getGitHubFileSha(path) {
-            const url = `https://api.github.com/repos/${REPO_USER}/${REPO_NAME}/contents/${path}`;
-            const response = await fetch(url, {
-                headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json" }
+            const table = document.getElementById("transactionsTable");
+            table.innerHTML = `<tr><th>Хеш</th><th>Дата</th><th>Файл</th></tr>`;
+
+            transactions.forEach(entry => {
+                let row = table.insertRow();
+                row.insertCell(0).innerText = entry.hash;
+                row.insertCell(1).innerText = new Date(entry.date).toLocaleString();
+
+                let fileLink = document.createElement("a");
+                fileLink.href = entry.file;
+                fileLink.innerText = "Открыть";
+                fileLink.target = "_blank";
+                row.insertCell(2).appendChild(fileLink);
             });
-            if (response.ok) {
-                const data = await response.json();
-                return data.sha; // SHA файла нужен для обновления
-            }
-            return null;
-        }
-
-        async function loadTransactions() {
-            const url = `https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/main/${FILE_PATH}`;
-            try {
-                const response = await fetch(url);
-                if (!response.ok) throw new Error("Не удалось загрузить данные");
-                const transactions = await response.json();
-
-                const table = document.getElementById("transactionsTable");
-                table.innerHTML = `<tr><th>Хеш</th><th>Дата</th><th>Файл</th></tr>`;
-
-                transactions.forEach(entry => {
-                    let row = table.insertRow();
-                    row.insertCell(0).innerText = entry.hash;
-                    row.insertCell(1).innerText = new Date(entry.date).toLocaleString();
-
-                    let fileLink = document.createElement("a");
-                    fileLink.href = entry.file;
-                    fileLink.innerText = "Открыть";
-                    fileLink.target = "_blank";
-                    row.insertCell(2).appendChild(fileLink);
-                });
-
-            } catch (error) {
-                console.error("Ошибка загрузки данных:", error);
-            }
-        }
-
-        async function updateGitHubTransactions(newTransaction) {
-            let transactions = [];
-            try {
-                const url = `https://api.github.com/repos/${REPO_USER}/${REPO_NAME}/contents/${FILE_PATH}`;
-                const sha = await getGitHubFileSha(FILE_PATH);
-
-                const response = await fetch(url, {
-                    headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json" }
-                });
-
-                if (response.ok) {
-                    transactions = await response.json();
-                    transactions = JSON.parse(atob(transactions.content)); // Декодируем JSON
-                }
-            } catch (error) {
-                console.warn("Файл transactions.json не найден, создаем новый.");
-            }
-
-            transactions.push(newTransaction);
-
-            const updatedContent = btoa(JSON.stringify(transactions, null, 2));
-
-            await fetch(`https://api.github.com/repos/${REPO_USER}/${REPO_NAME}/contents/${FILE_PATH}`, {
-                method: "PUT",
-                headers: {
-                    Authorization: `Bearer ${GITHUB_TOKEN}`,
-                    Accept: "application/vnd.github+json"
-                },
-                body: JSON.stringify({
-                    message: "Добавлена новая транзакция",
-                    content: updatedContent,
-                    sha: await getGitHubFileSha(FILE_PATH)
-                })
-            });
-
-            console.log("✅ Транзакция сохранена в GitHub!");
-            loadTransactions();
         }
 
         async function hashFile(file) {
@@ -126,17 +62,22 @@
             document.getElementById("status").innerText = "🔄 Обрабатывается...";
 
             const fileHash = await hashFile(file);
+            const fileUrl = URL.createObjectURL(file);
 
             const transaction = {
                 hash: fileHash,
-                file: URL.createObjectURL(file),
+                file: fileUrl,
                 date: new Date().toISOString()
             };
 
             console.log("📌 Новая транзакция:", transaction);
-            document.getElementById("status").innerText = "✅ Файл подписан локально!";
 
-            await updateGitHubTransactions(transaction);
+            let transactions = JSON.parse(localStorage.getItem("transactions") || "[]");
+            transactions.push(transaction);
+            localStorage.setItem("transactions", JSON.stringify(transactions));
+
+            document.getElementById("status").innerText = "✅ Файл подписан локально!";
+            loadTransactions();
         }
 
         loadTransactions();
