@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Публичный Цифровой Нотариат</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        input, button { margin: 10px; padding: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid black; padding: 10px; }
+        th { background-color: lightgray; }
+    </style>
+</head>
+<body>
+
+    <h2>Публичный Цифровой Нотариат</h2>
+
+    <button onclick="generateKeys()">🔑 Генерировать ECDSA-ключи</button>
+    <p id="keys"></p>
+
+    <input type="file" id="fileInput">
+    <button onclick="processDocument()">📄 Подписать и загрузить</button>
+    
+    <p id="status"></p>
+
+    <h3>Зарегистрированные транзакции</h3>
+    <table id="transactionsTable">
+        <tr>
+            <th>Хеш</th>
+            <th>Дата</th>
+            <th>IPFS</th>
+            <th>Подпись</th>
+            <th>Проверка</th>
+        </tr>
+    </table>
+
+    <script>
+        let privateKey, publicKey;
+
+        // Функция генерации ключей
+        async function generateKeys() {
+            const keyPair = await window.crypto.subtle.generateKey(
+                { name: "ECDSA", namedCurve: "P-256" },
+                true,
+                ["sign", "verify"]
+            );
+
+            privateKey = keyPair.privateKey;
+            publicKey = keyPair.publicKey;
+
+            const exportedPublicKey = await window.crypto.subtle.exportKey("spki", publicKey);
+            const publicKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(exportedPublicKey)));
+
+            document.getElementById("keys").innerText = `🔑 Публичный ключ: ${publicKeyBase64}`;
+        }
+
+        // Функция хеширования файла
+        async function hashFile(file) {
+            const buffer = await file.arrayBuffer();
+            const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+            return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+        }
+
+        // Функция подписи данных
+        async function signData(data) {
+            const encoder = new TextEncoder();
+            const signature = await crypto.subtle.sign(
+                { name: "ECDSA", hash: "SHA-256" },
+                privateKey,
+                encoder.encode(data)
+            );
+            return btoa(String.fromCharCode(...new Uint8Array(signature)));
+        }
+
+        // Функция загрузки файла в IPFS
+        async function uploadToIPFS(file) {
+            const formData = new FormData();
+            formData.append("file", file);
+            const response = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
+                method: "POST",
+                headers: {
+                    "Authorization": "Bearer ВАШ_PINATA_JWT"
+                },
+                body: formData
+            });
+            const data = await response.json();
+            return `https://ipfs.io/ipfs/${data.IpfsHash}`;
+        }
+
+        // Функция загрузки транзакции в GitHub
+        async function updateGitHub(transaction) {
+            const repo = "ВАШ_GITHUB_USER/ВАШ_REPO";
+            const filePath = "transactions.json";
+            const url = `https://api.github.com/repos/${repo}/contents/${filePath}`;
+            const token = "ВАШ_GITHUB_TOKEN";
+
+            const response = await fetch(url, {
+                headers: { "Authorization": `token ${token}` }
+            });
+
+            let transactions = [];
+            let sha = "";
+
+            if (response.status === 200) {
+                const data = await response.json();
+                sha = data.sha;
+                const content = atob(data.content);
+                transactions = JSON.parse(content);
+            }
+
+            transactions.push(transaction);
+
+            const payload = {
+                message: "Добавлена новая транзакция",
+                content: btoa(JSON.stringify(transactions, null, 2)),
+                sha
+            };
+
+            return fetch(url, {
+                method: "PUT",
+                headers: {
+                    "Authorization": `token ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        // Обработка документа
+        async function processDocument() {
+            const file = document.getElementById("fileInput").files[0];
+            if (!file) return alert("Выберите файл!");
+
+            document.getElementById("status").innerText = "🔄 Обрабатывается...";
+
+            const fileHash = await hashFile(file);
+            const ipfsLink = await uploadToIPFS(file);
+            const signature = await signData(fileHash);
+
+            const transaction = {
+                hash: fileHash,
+                signature,
+                ipfs: ipfsLink,
+                date: new Date().toISOString()
+            };
+
+            await updateGitHub(transaction);
+            document.getElementById("status").innerHTML = `✅ Документ подписан!<br>🔗 <a href="${ipfsLink}" target="_blank">IPFS</a>`;
+            loadTransactions();
+        }
+
+        // Загрузка транзакций из GitHub
+        async function loadTransactions() {
+            const repo = "ВАШ_GITHUB_USER/ВАШ_REPO";
+            const filePath = "transactions.json";
+            const url = `https://raw.githubusercontent.com/${repo}/main/${filePath}`;
+
+            const response = await fetch(url);
+            if (response.status !== 200) return;
+
+            const transactions = await response.json();
+            const table = document.getElementById("transactionsTable");
+
+            transactions.forEach(entry => {
+                let row = table.insertRow();
+                row.insertCell(0).innerText = entry.hash;
+                row.insertCell(1).innerText = new Date(entry.date).toLocaleString();
+
+                let ipfsLink = document.createElement("a");
+                ipfsLink.href = entry.ipfs;
+                ipfsLink.innerText = "Открыть";
+                ipfsLink.target = "_blank";
+                row.insertCell(2).appendChild(ipfsLink);
+
+                row.insertCell(3).innerText = entry.signature.slice(0, 20) + "...";
+
+                let verifyButton = document.createElement("button");
+                verifyButton.innerText = "Проверить";
+                verifyButton.onclick = function() {
+                    alert("Проверка подписи пока не реализована!");
+                };
+                row.insertCell(4).appendChild(verifyButton);
+            });
+        }
+
+        loadTransactions();
+    </script>
+</body>
+</html>
