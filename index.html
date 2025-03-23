@@ -1,87 +1,43 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Цифровой нотариат</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid black; padding: 10px; }
-        th { background-color: lightgray; }
-        input, button { margin: 10px; padding: 10px; }
-    </style>
-</head>
-<body>
+<table id="transactionsTable">
+    <tr>
+        <th>Хеш</th>
+        <th>Дата</th>
+        <th>Автор</th>
+        <th>Подпись</th>
+        <th>IPFS</th>
+        <th>Проверка</th>
+    </tr>
+</table>
 
-    <h2>Публичный цифровой нотариат</h2>
+<script>
+    async function fetchTransactions() {
+        const response = await fetch("transactions.json");
+        const transactions = await response.json();
+        const keysResponse = await fetch("public_keys.json");
+        const keys = await keysResponse.json();
 
-    <input type="file" id="fileInput">
-    <button onclick="processDocument()">📄 Подписать</button>
-    <p id="status"></p>
+        const table = document.getElementById("transactionsTable");
 
-    <h3>История транзакций</h3>
-    <table id="transactionsTable">
-        <tr>
-            <th>Хеш</th>
-            <th>Дата</th>
-            <th>Файл</th>
-        </tr>
-    </table>
+        transactions.forEach(entry => {
+            let row = table.insertRow();
+            row.insertCell(0).innerText = entry.hash;
+            row.insertCell(1).innerText = new Date(entry.date).toLocaleString();
+            row.insertCell(2).innerText = entry.author;
+            row.insertCell(3).innerText = entry.signature.slice(0, 20) + "...";
+            
+            let ipfsLink = document.createElement("a");
+            ipfsLink.href = entry.ipfs;
+            ipfsLink.innerText = "Открыть";
+            row.insertCell(4).appendChild(ipfsLink);
 
-    <script>
-        function loadTransactions() {
-            const transactions = JSON.parse(localStorage.getItem("transactions") || "[]");
-
-            const table = document.getElementById("transactionsTable");
-            table.innerHTML = `<tr><th>Хеш</th><th>Дата</th><th>Файл</th></tr>`;
-
-            transactions.forEach(entry => {
-                let row = table.insertRow();
-                row.insertCell(0).innerText = entry.hash;
-                row.insertCell(1).innerText = new Date(entry.date).toLocaleString();
-
-                let fileLink = document.createElement("a");
-                fileLink.href = entry.file;
-                fileLink.innerText = "Открыть";
-                fileLink.target = "_blank";
-                row.insertCell(2).appendChild(fileLink);
-            });
-        }
-
-        async function hashFile(file) {
-            const buffer = await file.arrayBuffer();
-            const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-            return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
-        }
-
-        async function processDocument() {
-            const file = document.getElementById("fileInput").files[0];
-            if (!file) return alert("Выберите файл!");
-
-            document.getElementById("status").innerText = "🔄 Обрабатывается...";
-
-            const fileHash = await hashFile(file);
-            const fileUrl = URL.createObjectURL(file);
-
-            const transaction = {
-                hash: fileHash,
-                file: fileUrl,
-                date: new Date().toISOString()
+            let verifyButton = document.createElement("button");
+            verifyButton.innerText = "Проверить";
+            verifyButton.onclick = function() {
+                alert("Проверка подписи пока не реализована в браузере!");
             };
+            row.insertCell(5).appendChild(verifyButton);
+        });
+    }
 
-            console.log("📌 Новая транзакция:", transaction);
-
-            let transactions = JSON.parse(localStorage.getItem("transactions") || "[]");
-            transactions.push(transaction);
-            localStorage.setItem("transactions", JSON.stringify(transactions));
-
-            document.getElementById("status").innerText = "✅ Файл подписан локально!";
-            loadTransactions();
-        }
-
-        loadTransactions();
-    </script>
-
-</body>
-</html>
+    fetchTransactions();
+</script>
