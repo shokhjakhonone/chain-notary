@@ -30,11 +30,23 @@
     </table>
 
     <script>
-        const REPO_USER = "shokhjakhonone"; // Твой GitHub логин
-        const REPO_NAME = "chain-notary"; // Название репозитория
-        const FILE_PATH = "transactions.json"; // Где хранятся транзакции
+        const REPO_USER = "shokhjakhonone";  // Твой GitHub логин
+        const REPO_NAME = "chain-notary";   // Название репозитория
+        const FILE_PATH = "database/transactions.json"; // Где хранятся транзакции
+        const GITHUB_TOKEN = "ghp_xxxxxx";  // Вставь свой GitHub API Token
 
-        // Функция загрузки транзакций из GitHub
+        async function getGitHubFileSha(path) {
+            const url = `https://api.github.com/repos/${REPO_USER}/${REPO_NAME}/contents/${path}`;
+            const response = await fetch(url, {
+                headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json" }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                return data.sha; // SHA файла нужен для обновления
+            }
+            return null;
+        }
+
         async function loadTransactions() {
             const url = `https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/main/${FILE_PATH}`;
             try {
@@ -62,14 +74,51 @@
             }
         }
 
-        // Функция хеширования файла
+        async function updateGitHubTransactions(newTransaction) {
+            let transactions = [];
+            try {
+                const url = `https://api.github.com/repos/${REPO_USER}/${REPO_NAME}/contents/${FILE_PATH}`;
+                const sha = await getGitHubFileSha(FILE_PATH);
+
+                const response = await fetch(url, {
+                    headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json" }
+                });
+
+                if (response.ok) {
+                    transactions = await response.json();
+                    transactions = JSON.parse(atob(transactions.content)); // Декодируем JSON
+                }
+            } catch (error) {
+                console.warn("Файл transactions.json не найден, создаем новый.");
+            }
+
+            transactions.push(newTransaction);
+
+            const updatedContent = btoa(JSON.stringify(transactions, null, 2));
+
+            await fetch(`https://api.github.com/repos/${REPO_USER}/${REPO_NAME}/contents/${FILE_PATH}`, {
+                method: "PUT",
+                headers: {
+                    Authorization: `Bearer ${GITHUB_TOKEN}`,
+                    Accept: "application/vnd.github+json"
+                },
+                body: JSON.stringify({
+                    message: "Добавлена новая транзакция",
+                    content: updatedContent,
+                    sha: await getGitHubFileSha(FILE_PATH)
+                })
+            });
+
+            console.log("✅ Транзакция сохранена в GitHub!");
+            loadTransactions();
+        }
+
         async function hashFile(file) {
             const buffer = await file.arrayBuffer();
             const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
             return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
         }
 
-        // Функция обработки документа
         async function processDocument() {
             const file = document.getElementById("fileInput").files[0];
             if (!file) return alert("Выберите файл!");
@@ -78,7 +127,6 @@
 
             const fileHash = await hashFile(file);
 
-            // Формируем транзакцию
             const transaction = {
                 hash: fileHash,
                 file: URL.createObjectURL(file),
@@ -88,10 +136,9 @@
             console.log("📌 Новая транзакция:", transaction);
             document.getElementById("status").innerText = "✅ Файл подписан локально!";
 
-            loadTransactions();
+            await updateGitHubTransactions(transaction);
         }
 
-        // Загружаем транзакции при открытии страницы
         loadTransactions();
     </script>
 
